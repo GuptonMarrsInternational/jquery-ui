@@ -8,12 +8,40 @@ var
 		"core.js",
 		"widget.js",
 		"mouse.js",
+		"position.js",
+		"accordion.js",
+		"menu.js",
+		"autocomplete.js",
+		"button.js",
+		"datepicker.js",
 		"draggable.js",
-		"droppable.js",
 		"resizable.js",
+		"dialog.js",
+		"droppable.js",
+		"effect.js",
+		"effect-blind.js",
+		"effect-bounce.js",
+		"effect-clip.js",
+		"effect-drop.js",
+		"effect-explode.js",
+		"effect-fade.js",
+		"effect-fold.js",
+		"effect-highlight.js",
+		"effect-size.js",
+		"effect-scale.js",
+		"effect-puff.js",
+		"effect-pulsate.js",
+		"effect-shake.js",
+		"effect-slide.js",
+		"effect-transfer.js",
+		"progressbar.js",
 		"selectable.js",
+		"selectmenu.js",
+		"slider.js",
 		"sortable.js",
-		"effect.js"
+		"spinner.js",
+		"tabs.js",
+		"tooltip.js"
 	],
 
 	uiFiles = coreFiles.map(function( file ) {
@@ -134,7 +162,7 @@ grunt.initConfig({
 			options: {
 				banner: createBanner( uiFiles ),
 				stripBanners: {
-					block: true
+					block: false
 				}
 			},
 			src: uiFiles,
