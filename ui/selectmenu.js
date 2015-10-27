@@ -105,7 +105,7 @@ return $.widget( "ui.selectmenu", {
 		})
 			.appendTo( this.button );
 
-		this._setText( this.buttonText, this.element.find( "option:selected" ).text() );
+		this._setButtonContent( this.element.find( "option:selected" ) );
 		this._resizeButton();
 
 		this._on( this.button, this._buttonEvents );
@@ -191,7 +191,7 @@ return $.widget( "ui.selectmenu", {
 
 	refresh: function() {
 		this._refreshMenu();
-		this._setText( this.buttonText, this._getSelectedItem().text() );
+		this._setButtonContent( this._getSelectedItem().data( "ui-selectmenu-item" ).element );
 		if ( !this.options.width ) {
 			this._resizeButton();
 		}
@@ -303,10 +303,23 @@ return $.widget( "ui.selectmenu", {
 	_renderItem: function( ul, item ) {
 		var li = $( "<li>" );
 
+		// If there are any CSS class names on the <option> element, apply those same class names to the <li> element.
+		// NOTE: We ignore any class names on the <option>	element that begin with "ui-".
+		li.addClass( this._getNonUIClasses( item.element.attr( "class" ) ) );
+
 		if ( item.disabled ) {
 			li.addClass( "ui-state-disabled" );
 		}
-		this._setText( li, item.label );
+
+		// Decide how to populate the <li> element's content: 
+		// If there is HTML specified in the <option> element's ui-selectmenu-html data item, use the HTML.
+		// Otherwise use the <option> element's label text.
+		var html = item.element.data( "ui-selectmenu-html" );
+		if ( typeof html === "string" && html.length > 0 ) {
+			li.html( html );
+		} else {
+			this._setText( li, item.label );
+		}
 
 		return li.appendTo( ul );
 	},
@@ -317,6 +330,31 @@ return $.widget( "ui.selectmenu", {
 		} else {
 			element.html( "&#160;" );
 		}
+	},
+
+	_setButtonContent: function( optionElement ) {
+		// Decide how to populate the buttonText element's content: 
+		// If there is HTML specified in the <option> element's ui-selectmenu-html data item, use the HTML.
+		// Otherwise use the <option> element's label text.
+		var html = optionElement.data( "ui-selectmenu-html" );
+		if ( typeof html === "string" && html.length > 0 ) {
+			this.buttonText.html( html );
+		} else {
+			this._setText( this.buttonText, optionElement.text() );
+		}
+
+		// If there are any CSS class names on the <option> element, apply those same class names to the button element.
+		// We assume that any class names on the button element that begin with "ui-" belong to this widget, so we leave them
+		// unchanged, and we ignore any class names on the <option> element that begin with "ui-".
+		this.button.removeClass( this._getNonUIClasses( this.button.attr( "class" ) ) );
+		this.button.addClass( this._getNonUIClasses( optionElement.attr( "class" ) ) );
+	},
+
+	_getNonUIClasses: function( className ) {
+		return ( className || "" )
+			.split( " " )
+			.filter( function( cls ) { return !cls.startsWith( "ui-" ) } )
+			.join( " " );
 	},
 
 	_move: function( direction, event ) {
@@ -338,6 +376,9 @@ return $.widget( "ui.selectmenu", {
 
 		if ( next.length ) {
 			this.menuInstance.focus( event, next );
+			if ( this.isOpen ) {
+				this._selectFocusedItem( event, true );
+			}
 		}
 	},
 
@@ -423,6 +464,8 @@ return $.widget( "ui.selectmenu", {
 				case $.ui.keyCode.UP:
 					if ( event.altKey ) {
 						this._toggle( event );
+					} else if ( event.ctrlKey ) {
+						preventDefault = false;
 					} else {
 						this._move( "prev", event );
 					}
@@ -430,6 +473,8 @@ return $.widget( "ui.selectmenu", {
 				case $.ui.keyCode.DOWN:
 					if ( event.altKey ) {
 						this._toggle( event );
+					} else if ( event.ctrlKey ) {
+						preventDefault = false;
 					} else {
 						this._move( "next", event );
 					}
@@ -442,10 +487,18 @@ return $.widget( "ui.selectmenu", {
 					}
 					break;
 				case $.ui.keyCode.LEFT:
-					this._move( "prev", event );
+					if ( event.ctrlKey ) {
+						preventDefault = false;
+					} else {
+						this._move( "prev", event );
+					}
 					break;
 				case $.ui.keyCode.RIGHT:
-					this._move( "next", event );
+					if ( event.ctrlKey ) {
+						preventDefault = false;
+					} else {
+						this._move( "next", event );
+					}
 					break;
 				case $.ui.keyCode.HOME:
 				case $.ui.keyCode.PAGE_UP:
@@ -466,19 +519,19 @@ return $.widget( "ui.selectmenu", {
 		}
 	},
 
-	_selectFocusedItem: function( event ) {
+	_selectFocusedItem: function( event, keepMenuOpen ) {
 		var item = this.menuItems.eq( this.focusIndex );
 		if ( !item.hasClass( "ui-state-disabled" ) ) {
-			this._select( item.data( "ui-selectmenu-item" ), event );
+			this._select( item.data( "ui-selectmenu-item" ), event, keepMenuOpen );
 		}
 	},
 
-	_select: function( item, event ) {
+	_select: function( item, event, keepMenuOpen ) {
 		var oldIndex = this.element[ 0 ].selectedIndex;
 
 		// Change native select element
 		this.element[ 0 ].selectedIndex = item.index;
-		this._setText( this.buttonText, item.label );
+		this._setButtonContent( item.element );
 		this._setAria( item );
 		this._trigger( "select", event, { item: item } );
 
@@ -486,7 +539,9 @@ return $.widget( "ui.selectmenu", {
 			this._trigger( "change", event, { item: item } );
 		}
 
-		this.close( event );
+		if ( !keepMenuOpen ) {
+			this.close( event );
+		}
 	},
 
 	_setAria: function( item ) {
