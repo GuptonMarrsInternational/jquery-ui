@@ -49,6 +49,8 @@ return $.widget("ui.sortable", $.ui.mouse, {
 		scroll: true,
 		scrollSensitivity: 20,
 		scrollSpeed: 20,
+		scrollParent: null,
+		dragTimerInterval: 25, // milliseconds
 		scope: "default",
 		tolerance: "intersect",
 		zIndex: 1000,
@@ -185,6 +187,7 @@ return $.widget("ui.sortable", $.ui.mouse, {
 			o = this.options;
 
 		this.currentContainer = this;
+		this.cssPosition = "absolute";
 
 		//We only need to call refreshPositions, because the refreshItems call has been moved to mouseCapture
 		this.refreshPositions();
@@ -204,7 +207,22 @@ return $.widget("ui.sortable", $.ui.mouse, {
 		this._cacheMargins();
 
 		//Get the next scrolling parent
-		this.scrollParent = this.helper.scrollParent();
+		if(o.scrollParent != null) {
+			this.scrollParent = (typeof o.scrollParent === "string") ? this.currentItem.closest(o.scrollParent) : $(o.scrollParent);
+		} else {
+			this.scrollParent = this.helper.scrollParent();
+		}
+
+		/*
+		 * Because of the order in which the Sortable manipulates the collection of items, if you are scrolled
+		 * all the way to the end of the collection when you start dragging, the collection will scroll up by the 
+		 * height of the item being dragged. This is distracting, so we remember the scroll position and restore
+		 * it at the end of this function.
+		 */
+		var origScrollPos = { 
+			x: this.scrollParent.scrollLeft(), 
+			y: this.scrollParent.scrollTop() 
+		};
 
 		//The element's absolute position on the page minus margins
 		this.offset = this.currentItem.offset();
@@ -225,7 +243,6 @@ return $.widget("ui.sortable", $.ui.mouse, {
 		// Only after we got the offset, we can change the helper's position to absolute
 		// TODO: Still need to figure out a way to make relative sorting possible
 		this.helper.css("position", "absolute");
-		this.cssPosition = this.helper.css("position");
 
 		//Generate the original position
 		this.originalPosition = this._generatePosition(event);
@@ -308,12 +325,86 @@ return $.widget("ui.sortable", $.ui.mouse, {
 		this.dragging = true;
 
 		this.helper.addClass("ui-sortable-helper");
-		this._mouseDrag(event); //Execute the drag once - this causes the helper not to be visible before getting its correct position
+		this._mouseDragImpl(event); //Execute the drag once - this causes the helper not to be visible before getting its correct position
+
+		//Restore the scroll parent's original scroll position.
+		this.scrollParent.scrollLeft(origScrollPos.x).scrollTop(origScrollPos.y);
+
 		return true;
 
 	},
 
 	_mouseDrag: function(event) {
+		// If this is the first drag event, set up our dragTimerInfo object to hold our instance state, and start
+		// the timer that does the actual drag processing. For subsequent drag events, just update the event.
+		if(this.dragTimerInfo == null) {
+			var that = this;
+			this.dragTimerInfo = {
+				lastEventTime: new Date(),
+				lastMouseDragEvent: event,
+				scrollPos: { x: this.scrollParent.scrollLeft(), y: this.scrollParent.scrollTop() },
+				scrollDirection: { x: 0, y: 0 },
+				timerID: window.setTimeout(function() { that._mouseDragTimer() }, this.options.dragTimerInterval)
+			};
+		} else {
+			this.dragTimerInfo.lastMouseDragEvent = event;
+		}
+	},
+
+	_mouseDragTimer: function() {
+		// This function does the actual mouse drag handling set up by the _mouseDrag function.
+
+		// See how long it's been since this function was last called. We use this information to equalize
+		// the scroll speed across browsers.
+		var now = new Date();
+		var elapsed = now.getTime() - this.dragTimerInfo.lastEventTime.getTime();
+		this.dragTimerInfo.lastEventTime = now;
+
+		// When the user stops moving the mouse during auto-scrolling, we keep calling _mouseDragImpl.
+		// If the Sortable widget sees that the mouse hasn't moved, it doesn't update the placeholder
+		// position. We need to trick it into seeing mouse movement in the direction we are scrolling, which we
+		// do by modifying the LAST mouse position that it remembered. (We don't want to modify the current position,
+		// because that will throw off the placeholder calculations and cause the helper element to move visibly.)
+		if(this.lastPositionAbs != null) {
+			this.lastPositionAbs.left -= this.dragTimerInfo.scrollDirection.x;
+			this.lastPositionAbs.top -= this.dragTimerInfo.scrollDirection.y;
+		}
+
+		// Set the scroll speed according to how frequently we are getting the timer messages. This allows us
+		// to equalize the scroll speed across browsers (slower browsers will call this function less frequently,
+		// resulting in jumpier scrolling rather than slower scrolling). Note that the default scroll speed is
+		// 20, so if the caller wants slower or faster scrolling, we scale accordingly.
+		var defaultScrollSpeed = 20;
+		var prevScrollSpeed = this.options.scrollSpeed;
+		this.options.scrollSpeed = Math.round(elapsed * this.options.scrollSpeed / defaultScrollSpeed);
+
+		try {
+			// Call _mouseDragImpl to process the drag event. This may or may not cause scrolling, but
+			// it will always rearrange the sortable items according to its settings.
+			this._mouseDragImpl(this.dragTimerInfo.lastMouseDragEvent);
+		} finally {
+			// Restore the scroll speed for next time.
+			this.options.scrollSpeed = prevScrollSpeed;
+		}
+
+		// Figure out if we scrolled, and in which direction.
+		var newScrollPos = { x: this.scrollParent.scrollLeft(), y: this.scrollParent.scrollTop() };
+		this.dragTimerInfo.scrollDirection.x = Math.max(-1, Math.min(1, newScrollPos.x - this.dragTimerInfo.scrollPos.x));
+		this.dragTimerInfo.scrollDirection.y = Math.max(-1, Math.min(1, newScrollPos.y - this.dragTimerInfo.scrollPos.y));
+		this.dragTimerInfo.scrollPos = newScrollPos;
+
+		// If we scrolled, call refreshPositions to update the position of the placeholder, otherwise the placeholder
+		// will stay put relative to the rest of the collection during auto-scrolling.
+		if(this.dragTimerInfo.scrollDirection.x || this.dragTimerInfo.scrollDirection.y)	{
+			this.refreshPositions();
+		}
+
+		// Set up to do it again.
+		var that = this;
+		this.dragTimerInfo.timerID = window.setTimeout(function() { that._mouseDragTimer() }, this.options.dragTimerInterval);
+	},
+
+	_mouseDragImpl: function(event) {
 		var i, item, itemElement, intersection,
 			o = this.options,
 			scrolled = false;
@@ -438,6 +529,12 @@ return $.widget("ui.sortable", $.ui.mouse, {
 
 		if(!event) {
 			return;
+		}
+
+		// Kill the timer and dragTimerInfo object set up by _mouseDrag.
+		if(this.dragTimerInfo != null) {
+			window.clearTimeout(this.dragTimerInfo.timerID);
+			this.dragTimerInfo = null;
 		}
 
 		//If we are using droppables, inform the manager about the drop
