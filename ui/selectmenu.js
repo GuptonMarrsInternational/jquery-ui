@@ -509,7 +509,11 @@ return $.widget( "ui.selectmenu", {
 					this._move( "last", event );
 					break;
 				default:
+					var prevFocus = this.focusIndex;
 					this.menu.trigger( event );
+					if ( this.focusIndex !== prevFocus ) {
+						this._selectFocusedItem( event, true )
+					}
 					preventDefault = false;
 			}
 
