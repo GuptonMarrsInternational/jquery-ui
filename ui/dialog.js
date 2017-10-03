@@ -365,11 +365,6 @@ return $.widget( "ui.dialog", {
 					});
 					event.preventDefault();
 				}
-			},
-			mousedown: function( event ) {
-				if ( this._moveToTop( event ) ) {
-					this._focusTabbable();
-				}
 			}
 		});
 
